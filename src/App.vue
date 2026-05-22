@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Plus } from 'lucide-vue-next'
 import CategorySummary from '@/components/todos/CategorySummary.vue'
 import TodoForm from '@/components/todos/TodoForm.vue'
@@ -7,15 +7,18 @@ import TodoHeader from '@/components/todos/TodoHeader.vue'
 import TodoList from '@/components/todos/TodoList.vue'
 import type { Priority, PriorityOption, StatusFilter, Todo, TodoDraft } from '@/types/todo'
 
+const STORAGE_KEY = 'vue-todos'
 const today = new Date().toISOString().slice(0, 10)
 
-const search = ref('')
-const statusFilter = ref<StatusFilter>('all')
-const priorityFilter = ref<'all' | Priority>('all')
-const categoryFilter = ref('all')
-const hideCompleted = ref(false)
+const storage = () => {
+  if (typeof localStorage === 'undefined') return null
+  if (typeof localStorage.getItem !== 'function') return null
+  if (typeof localStorage.setItem !== 'function') return null
 
-const todos = ref<Todo[]>([
+  return localStorage
+}
+
+const defaultTodos = (): Todo[] => [
   {
     id: 1,
     title: 'Learn Vue state and v-model',
@@ -56,7 +59,28 @@ const todos = ref<Todo[]>([
     dueDate: '2026-05-25',
     createdAt: '2026-05-21',
   },
-])
+]
+
+const loadTodos = (): Todo[] => {
+  const savedTodos = storage()?.getItem(STORAGE_KEY)
+
+  if (!savedTodos) {
+    return defaultTodos()
+  }
+
+  try {
+    return JSON.parse(savedTodos)
+  } catch {
+    return defaultTodos()
+  }
+}
+
+const search = ref('')
+const statusFilter = ref<StatusFilter>('all')
+const priorityFilter = ref<'all' | Priority>('all')
+const categoryFilter = ref('all')
+const hideCompleted = ref(false)
+const todos = ref<Todo[]>(loadTodos())
 
 const categories = ['Course', 'Teaching', 'Homework', 'Review', 'Personal']
 const priorities: PriorityOption[] = [
@@ -174,6 +198,14 @@ const resetFilters = () => {
   categoryFilter.value = 'all'
   hideCompleted.value = false
 }
+
+watch(
+  todos,
+  (newTodos) => {
+    storage()?.setItem(STORAGE_KEY, JSON.stringify(newTodos))
+  },
+  { deep: true },
+)
 </script>
 
 <template>
