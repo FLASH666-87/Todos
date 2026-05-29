@@ -5,7 +5,14 @@ import CategorySummary from '@/components/todos/CategorySummary.vue'
 import TodoForm from '@/components/todos/TodoForm.vue'
 import TodoHeader from '@/components/todos/TodoHeader.vue'
 import TodoList from '@/components/todos/TodoList.vue'
-import { listTodosFromSqlite } from '@/lib/todoSqlite'
+import {
+  deleteCompletedTodosFromSqlite,
+  deleteTodoFromSqlite,
+  initializeTodoDatabase,
+  insertTodoIntoSqlite,
+  listTodosFromSqlite,
+  updateTodoCompletedInSqlite,
+} from '@/lib/todoSqlite'
 import type { Priority, PriorityOption, StatusFilter, Todo, TodoDraft } from '@/types/todo'
 
 const today = new Date().toISOString().slice(0, 10)
@@ -60,6 +67,7 @@ const categoryFilter = ref('all')
 const hideCompleted = ref(false)
 const isLoadingTodos = ref(true)
 const dataSourceLabel = ref('Browser SQLite')
+const isUsingSqlite = ref(false)
 const todos = ref<Todo[]>([])
 
 const categories = ['Course', 'Teaching', 'Homework', 'Review', 'Personal']
@@ -137,7 +145,17 @@ const categoryCounts = computed(() => {
   })
 })
 
+const refreshTodosFromSqlite = () => {
+  todos.value = listTodosFromSqlite()
+}
+
 const addTodo = (draft: TodoDraft) => {
+  if (isUsingSqlite.value) {
+    insertTodoIntoSqlite(draft, today)
+    refreshTodosFromSqlite()
+    return
+  }
+
   todos.value.push({
     id: Date.now(),
     title: draft.title,
@@ -154,10 +172,22 @@ const toggleTodo = (id: number) => {
   const todo = todos.value.find((item) => item.id === id)
   if (!todo) return
 
+  if (isUsingSqlite.value) {
+    updateTodoCompletedInSqlite(id, !todo.completed)
+    refreshTodosFromSqlite()
+    return
+  }
+
   todo.completed = !todo.completed
 }
 
 const deleteTodo = (id: number) => {
+  if (isUsingSqlite.value) {
+    deleteTodoFromSqlite(id)
+    refreshTodosFromSqlite()
+    return
+  }
+
   todos.value = todos.value.filter((todo) => todo.id !== id)
 }
 
@@ -168,6 +198,12 @@ const completeFilteredTodos = () => {
 }
 
 const clearCompletedTodos = () => {
+  if (isUsingSqlite.value) {
+    deleteCompletedTodosFromSqlite()
+    refreshTodosFromSqlite()
+    return
+  }
+
   todos.value = todos.value.filter((todo) => !todo.completed)
 }
 
@@ -183,16 +219,20 @@ onMounted(async () => {
   if (import.meta.env.MODE === 'test') {
     todos.value = defaultTodos()
     dataSourceLabel.value = 'Seed data'
+    isUsingSqlite.value = false
     isLoadingTodos.value = false
     return
   }
 
   try {
-    todos.value = await listTodosFromSqlite(defaultTodos())
+    await initializeTodoDatabase(defaultTodos())
+    refreshTodosFromSqlite()
     dataSourceLabel.value = 'Browser SQLite'
+    isUsingSqlite.value = true
   } catch {
     todos.value = defaultTodos()
     dataSourceLabel.value = 'Seed data'
+    isUsingSqlite.value = false
   }
 
   isLoadingTodos.value = false
