@@ -1,22 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Plus } from 'lucide-vue-next'
 import CategorySummary from '@/components/todos/CategorySummary.vue'
 import TodoForm from '@/components/todos/TodoForm.vue'
 import TodoHeader from '@/components/todos/TodoHeader.vue'
 import TodoList from '@/components/todos/TodoList.vue'
+import { listTodosFromSqlite } from '@/lib/todoSqlite'
 import type { Priority, PriorityOption, StatusFilter, Todo, TodoDraft } from '@/types/todo'
 
-const STORAGE_KEY = 'vue-todos'
 const today = new Date().toISOString().slice(0, 10)
-
-const storage = () => {
-  if (typeof localStorage === 'undefined') return null
-  if (typeof localStorage.getItem !== 'function') return null
-  if (typeof localStorage.setItem !== 'function') return null
-
-  return localStorage
-}
 
 const defaultTodos = (): Todo[] => [
   {
@@ -61,26 +53,14 @@ const defaultTodos = (): Todo[] => [
   },
 ]
 
-const loadTodos = (): Todo[] => {
-  const savedTodos = storage()?.getItem(STORAGE_KEY)
-
-  if (!savedTodos) {
-    return defaultTodos()
-  }
-
-  try {
-    return JSON.parse(savedTodos)
-  } catch {
-    return defaultTodos()
-  }
-}
-
 const search = ref('')
 const statusFilter = ref<StatusFilter>('all')
 const priorityFilter = ref<'all' | Priority>('all')
 const categoryFilter = ref('all')
 const hideCompleted = ref(false)
-const todos = ref<Todo[]>(loadTodos())
+const isLoadingTodos = ref(true)
+const dataSourceLabel = ref('Browser SQLite')
+const todos = ref<Todo[]>([])
 
 const categories = ['Course', 'Teaching', 'Homework', 'Review', 'Personal']
 const priorities: PriorityOption[] = [
@@ -199,13 +179,24 @@ const resetFilters = () => {
   hideCompleted.value = false
 }
 
-watch(
-  todos,
-  (newTodos) => {
-    storage()?.setItem(STORAGE_KEY, JSON.stringify(newTodos))
-  },
-  { deep: true },
-)
+onMounted(async () => {
+  if (import.meta.env.MODE === 'test') {
+    todos.value = defaultTodos()
+    dataSourceLabel.value = 'Seed data'
+    isLoadingTodos.value = false
+    return
+  }
+
+  try {
+    todos.value = await listTodosFromSqlite(defaultTodos())
+    dataSourceLabel.value = 'Browser SQLite'
+  } catch {
+    todos.value = defaultTodos()
+    dataSourceLabel.value = 'Seed data'
+  }
+
+  isLoadingTodos.value = false
+})
 </script>
 
 <template>
@@ -217,6 +208,17 @@ watch(
         :completed-count="completedTodos.length"
         :overdue-count="overdueTodos.length"
       />
+
+      <div class="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        Data source: <span class="font-semibold text-slate-900">{{ dataSourceLabel }}</span>
+      </div>
+
+      <div
+        v-if="isLoadingTodos"
+        class="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600"
+      >
+        Loading TODOs from SQLite...
+      </div>
 
       <section class="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
         <aside class="rounded-lg border border-slate-200 bg-white p-5">

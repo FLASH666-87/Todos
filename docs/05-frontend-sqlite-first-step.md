@@ -26,6 +26,79 @@
 
 > 資料可以從「一包 JSON」變成「一張表」。
 
+## 先補兩個必要概念
+
+這堂課會看到兩個新名詞：
+
+- `onMounted`
+- browser SQLite
+
+不要把這兩個講太深，但要先交代它們為什麼出現。
+
+## onMounted 是什麼？
+
+`onMounted` 是 Vue component 的生命週期 hook。
+
+可以先用很口語的方式講：
+
+> Component 不是一出生就已經在畫面上。Vue 會先準備資料、建立 component，然後把它掛到畫面上。`onMounted` 就是在「這個 component 已經掛到畫面上」之後執行的 function。
+
+這堂課會用它做一件事：
+
+```ts
+onMounted(async () => {
+  todos.value = await listTodosFromSqlite(defaultTodos())
+})
+```
+
+意思是：
+
+> 畫面準備好之後，去 SQLite 查資料，再把查到的資料放回 Vue state。
+
+這裡先不要完整教所有生命週期。
+
+只需要讓學生知道：
+
+- `setup` 會先跑
+- template 會用 state 畫畫面
+- `onMounted` 適合放「component 出現在畫面後才要做的事」
+- 例如讀資料、呼叫瀏覽器 API、初始化第三方工具
+
+教學句：
+
+> 當資料來源變成 async，不一定能在一開始就拿到資料，所以我們會在 mounted 後載入，再更新 state。
+
+## browser SQLite 是什麼？
+
+平常大家聽到 SQLite，可能會以為它一定是在後端或電腦檔案裡。
+
+這堂課講的 browser SQLite 是：
+
+> SQLite 被編譯成 WebAssembly，讓它可以在瀏覽器裡執行。
+
+在這個專案裡，我們用的是 `sql.js`。
+
+所以資料流是：
+
+```txt
+Vue component
+  -> onMounted
+  -> sql.js
+  -> SQLite table in browser memory
+  -> SELECT rows
+  -> todos state
+```
+
+這裡要講清楚：
+
+> 這不是後端 DB。這是跑在瀏覽器裡的 SQLite。
+
+第一堂課也先不要講檔案持久化。先把觀念放在：
+
+- localStorage 是 key-value
+- SQLite 是 table
+- Vue state 可以從 SQLite 查詢結果來
+
 ## 為什麼這還是前端課？
 
 這裡使用 SQLite，不是要把課程變成後端課。
@@ -36,8 +109,9 @@
 
 ```txt
 Vue component
-  -> Vue state
+  -> onMounted
   -> SQLite in browser
+  -> Vue state
 ```
 
 沒有 server。
@@ -169,6 +243,14 @@ const todos = ref<Todo[]>([])
 const loadTodos = async () => {
   todos.value = await listTodosFromSqlite()
 }
+```
+
+實際放進 Vue component 時，會寫在 `onMounted`：
+
+```ts
+onMounted(async () => {
+  todos.value = await listTodosFromSqlite(defaultTodos())
+})
 ```
 
 重點不是 `listTodosFromSqlite` 裡面完整怎麼寫。
