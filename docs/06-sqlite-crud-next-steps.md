@@ -1,84 +1,85 @@
-# 教學 06：把前端操作對應成 SQLite CRUD
+# 06：把 TODO 操作改成 SQLite CRUD
 
-## 這堂課只新增一個學習點
+## 你會學到什麼
 
-學習點：
+這一章只學一件事：
 
-> 前端操作可以對應成 SQL mutation。
+> 原本改 JavaScript array 的地方，可以改成 SQL mutation。
 
-上一堂只講：
+對照表：
 
-- localStorage 是 key-value
-- SQLite 是 table
-- `Todo` type 可以對應成 `todos` table
-- 先用 `SELECT` 把資料讀回 Vue state
+| Vue 操作 | 原本 array 寫法 | SQLite 寫法 |
+| --- | --- | --- |
+| 新增 TODO | `push` | `INSERT` |
+| 完成 TODO | 改 `todo.completed` | `UPDATE` |
+| 刪除 TODO | `filter` | `DELETE` |
+| 清除完成 TODO | `filter(!completed)` | `DELETE WHERE completed = 1` |
 
-這堂課開始讓學生看到：畫面上的新增、完成、刪除，其實都可以變成 SQL。
+## 開始前
 
-不要一次講 repository、API、同步、vector DB。
-
-只讓學生看到目前 Vue 裡的 methods，可以對應到 SQL：
+上一章只做讀取：
 
 ```txt
-addTodo            -> INSERT
-toggleTodo         -> UPDATE
-deleteTodo         -> DELETE
-clearCompletedTodo -> DELETE WHERE completed = 1
+SQLite table
+  -> SELECT
+  -> todos state
 ```
 
-課堂主軸：
-
-> 原本我們改的是 JavaScript array；現在我們改 SQLite table，然後再 SELECT 回 Vue state。
-
-## 實作策略
-
-這堂課仍然保持前端 scope。
-
-資料流是：
+這章加入修改：
 
 ```txt
 使用者操作
-  -> Vue method
-  -> SQLite INSERT / UPDATE / DELETE
-  -> SELECT todos
-  -> 更新 Vue state
+  -> SQL INSERT / UPDATE / DELETE
+  -> SELECT 最新 rows
+  -> 更新 todos state
 ```
 
-不要讓畫面直接依賴 SQL result object。
+先不要講 transaction、rollback、optimistic update、repository。
 
-Vue component 最後仍然只吃：
+## Step 1：保留 database instance
+
+上一章每次讀完就結束。
+
+這章需要讓新增、更新、刪除都操作同一個 SQLite database。
+
+所以在 `todoSqlite.ts` 裡保留：
 
 ```ts
-const todos = ref<Todo[]>([])
+let database: Database | null = null
 ```
 
-這樣學生比較容易理解：
-
-> 底層資料來源換成 SQLite，但畫面仍然是用 Vue state render。
-
-## 從新增開始：INSERT
-
-localStorage / array 版本的新增是：
+然後用 helper 確認 database 已經初始化：
 
 ```ts
-const addTodo = (draft: TodoDraft) => {
-  todos.value.push({
-    id: Date.now(),
-    title: draft.title,
-    description: draft.description,
-    completed: false,
-    priority: draft.priority,
-    category: draft.category,
-    dueDate: draft.dueDate,
-    createdAt: today,
-  })
+const requireDatabase = () => {
+  if (!database) {
+    throw new Error('SQLite database has not been initialized.')
+  }
+
+  return database
 }
 ```
 
-SQLite 版本變成：
+## Step 2：新增 TODO 對應 INSERT
+
+原本在 `App.vue`：
+
+```ts
+todos.value.push(...)
+```
+
+現在改成：
+
+```ts
+insertTodoIntoSqlite(draft, today)
+refreshTodosFromSqlite()
+```
+
+SQL：
 
 ```sql
 INSERT INTO todos (
+  id,
   title,
   description,
   completed,
@@ -86,35 +87,29 @@ INSERT INTO todos (
   category,
   due_date,
   created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 ```
 
-教學句：
+重點：
 
-> 原本 push 到 array，現在 insert 到 table。
+> 原本新增一個 object 到 array，現在新增一列到 table。
 
-實作上，新增後再查一次：
+## Step 3：完成 TODO 對應 UPDATE
 
-```ts
-insertTodoIntoSqlite(draft, today)
-todos.value = listTodosFromSqlite()
-```
-
-先用這種方式是因為它最清楚：
-
-- SQL 負責改 table
-- SELECT 負責拿最新資料
-- Vue state 負責 render 畫面
-
-## 完成狀態：UPDATE
-
-array 版本的完成切換是：
+原本：
 
 ```ts
 todo.completed = !todo.completed
 ```
 
-SQLite 版本變成：
+現在：
+
+```ts
+updateTodoCompletedInSqlite(id, !todo.completed)
+refreshTodosFromSqlite()
+```
+
+SQL：
 
 ```sql
 UPDATE todos
@@ -122,117 +117,109 @@ SET completed = ?
 WHERE id = ?;
 ```
 
-教學句：
+請注意：
 
-> 原本改 object property，現在 update table 裡某一列。
+> `UPDATE` 一定要有 `WHERE`，不然會改到整張 table。
 
-這裡可以提醒學生：
+## Step 4：刪除 TODO 對應 DELETE
 
-> UPDATE 一定要有 WHERE，不然會改到整張 table。
-
-## 刪除：DELETE
-
-array 版本的刪除是：
+原本：
 
 ```ts
 todos.value = todos.value.filter((todo) => todo.id !== id)
 ```
 
-SQLite 版本變成：
+現在：
+
+```ts
+deleteTodoFromSqlite(id)
+refreshTodosFromSqlite()
+```
+
+SQL：
 
 ```sql
 DELETE FROM todos
 WHERE id = ?;
 ```
 
-教學句：
+請注意：
 
-> 原本從 array 過濾掉一筆，現在從 table 刪掉一列。
+> `DELETE` 也要小心 `WHERE`。
 
-同樣要提醒：
+## Step 5：清除完成項目
 
-> DELETE 也要小心 WHERE。
-
-## 清除完成：DELETE WHERE
-
-array 版本：
+原本：
 
 ```ts
 todos.value = todos.value.filter((todo) => !todo.completed)
 ```
 
-SQLite 版本：
+現在：
+
+```ts
+deleteCompletedTodosFromSqlite()
+refreshTodosFromSqlite()
+```
+
+SQL：
 
 ```sql
 DELETE FROM todos
 WHERE completed = 1;
 ```
 
-教學句：
+## 為什麼每次 mutation 後要 SELECT？
 
-> 原本保留未完成項目，現在刪掉 completed = 1 的 rows。
-
-## 為什麼 mutation 後要再 SELECT？
-
-這堂課先不要做複雜同步策略。
-
-最簡單的 mental model 是：
+這章先用最容易理解的方式：
 
 ```txt
-mutation SQL
+SQL mutation
   -> table 改變
   -> SELECT 最新資料
-  -> todos.value = rows
+  -> todos.value = 最新資料
 ```
 
-也就是：
+這樣學生可以清楚看到：
 
-> table 是資料來源，Vue state 是畫面快照。
+- SQLite table 是資料來源
+- Vue state 是畫面快照
+- 畫面仍然只依賴 `todos`
 
-這也可以銜接未來的後端 API：
+## 完成後請測試
+
+請在畫面操作：
+
+1. 新增一筆 TODO
+2. 勾選完成
+3. 刪除一筆 TODO
+4. Clear completed
+
+預期：
+
+- 畫面會更新
+- `Data source` 仍然是 `Browser SQLite`
+- 所有操作都會先改 SQLite，再 SELECT 回 Vue state
+
+## 檢查自己是否理解
+
+請回答：
+
+1. `push` 對應哪個 SQL？
+2. `todo.completed = true` 對應哪個 SQL？
+3. `filter` 刪除一筆對應哪個 SQL？
+4. 為什麼 `UPDATE` 和 `DELETE` 要有 `WHERE`？
+5. 為什麼 mutation 後要再 `SELECT`？
+
+## 本章重點
+
+前端畫面操作可以對應成 SQL：
 
 ```txt
-POST /todos
-  -> DB 改變
-  -> GET /todos
-  -> 更新前端 state
+Create -> INSERT
+Read   -> SELECT
+Update -> UPDATE
+Delete -> DELETE
 ```
 
-## 這堂課暫時不要講太多
-
-先不要講：
-
-- transaction
-- rollback
-- optimistic update
-- migration
-- relation
-- index
-- vector search
-
-下一堂只要讓學生完成一個 mapping：
-
-```txt
-array operation <-> SQL operation
-```
-
-## 課堂練習
-
-請學生把目前的 Vue method 對照 SQL：
-
-| Vue 操作 | Array 寫法 | SQL 寫法 |
-| --- | --- | --- |
-| 新增 | `todos.value.push(...)` | `INSERT INTO todos ...` |
-| 完成 | `todo.completed = true` | `UPDATE todos SET completed = 1` |
-| 刪除 | `filter(...)` | `DELETE FROM todos WHERE id = ?` |
-| 清除完成 | `filter(!completed)` | `DELETE FROM todos WHERE completed = 1` |
-
-## 下一步再考慮實作
-
-這堂已經實作 SQLite mutation，但仍然刻意不做完整資料庫課。
-
-下一步才適合討論：
-
-- SQLite 資料要不要真的持久保存成檔案
-- repository 要不要再抽一層
-- 之後如果換成後端 API，要改哪些地方
+這就是 CRUD。
