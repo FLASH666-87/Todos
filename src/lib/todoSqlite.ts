@@ -5,7 +5,59 @@ import type { Priority, Todo, TodoDraft } from '@/types/todo'
 
 type TodoRow = [number, string, string, number, Priority, string, string, string]
 
+const INDEXED_DB_NAME = 'vue-todos-sqlite'
+const INDEXED_DB_STORE = 'database'
+const SQLITE_DATABASE_KEY = 'todos.sqlite'
+
 let database: Database | null = null
+
+const openDatabaseStore = (): Promise<IDBObjectStore> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(INDEXED_DB_NAME, 1)
+
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(INDEXED_DB_STORE)
+    }
+
+    request.onerror = () => reject(request.error)
+
+    request.onsuccess = () => {
+      const transaction = request.result.transaction(INDEXED_DB_STORE, 'readwrite')
+      resolve(transaction.objectStore(INDEXED_DB_STORE))
+    }
+  })
+}
+
+const loadDatabaseBytes = async (): Promise<Uint8Array | null> => {
+  const store = await openDatabaseStore()
+
+  return new Promise((resolve, reject) => {
+    const request = store.get(SQLITE_DATABASE_KEY)
+
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const result = request.result
+
+      if (result instanceof Uint8Array) {
+        resolve(result)
+        return
+      }
+
+      resolve(null)
+    }
+  })
+}
+
+const saveDatabaseBytes = async (bytes: Uint8Array): Promise<void> => {
+  const store = await openDatabaseStore()
+
+  return new Promise((resolve, reject) => {
+    const request = store.put(bytes, SQLITE_DATABASE_KEY)
+
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })
+}
 
 const requireDatabase = () => {
   if (!database) {
@@ -85,10 +137,16 @@ export const initializeTodoDatabase = async (seedData: Todo[]): Promise<void> =>
     locateFile: () => sqliteWasmUrl,
   })
 
-  database = new SQL.Database()
+  const savedDatabase = await loadDatabaseBytes()
+
+  database = savedDatabase ? new SQL.Database(savedDatabase) : new SQL.Database()
 
   createTodoTable(database)
   seedTodos(database, seedData)
+
+  if (!savedDatabase) {
+    await persistTodoDatabase()
+  }
 }
 
 export const listTodosFromSqlite = (): Todo[] => {
@@ -111,7 +169,13 @@ export const listTodosFromSqlite = (): Todo[] => {
   return rows.map(mapRowToTodo)
 }
 
-export const insertTodoIntoSqlite = (draft: TodoDraft, createdAt: string): void => {
+export const persistTodoDatabase = async (): Promise<void> => {
+  const db = requireDatabase()
+
+  await saveDatabaseBytes(db.export())
+}
+
+export const insertTodoIntoSqlite = async (draft: TodoDraft, createdAt: string): Promise<void> => {
   const db = requireDatabase()
   const insert = db.prepare(`
     INSERT INTO todos (
@@ -138,9 +202,10 @@ export const insertTodoIntoSqlite = (draft: TodoDraft, createdAt: string): void 
   ])
 
   insert.free()
+  await persistTodoDatabase()
 }
 
-export const updateTodoCompletedInSqlite = (id: number, completed: boolean): void => {
+export const updateTodoCompletedInSqlite = async (id: number, completed: boolean): Promise<void> => {
   const db = requireDatabase()
   const update = db.prepare(`
     UPDATE todos
@@ -150,9 +215,10 @@ export const updateTodoCompletedInSqlite = (id: number, completed: boolean): voi
 
   update.run([completed ? 1 : 0, id])
   update.free()
+  await persistTodoDatabase()
 }
 
-export const deleteTodoFromSqlite = (id: number): void => {
+export const deleteTodoFromSqlite = async (id: number): Promise<void> => {
   const db = requireDatabase()
   const remove = db.prepare(`
     DELETE FROM todos
@@ -161,13 +227,16 @@ export const deleteTodoFromSqlite = (id: number): void => {
 
   remove.run([id])
   remove.free()
+  await persistTodoDatabase()
 }
 
-export const deleteCompletedTodosFromSqlite = (): void => {
+export const deleteCompletedTodosFromSqlite = async (): Promise<void> => {
   const db = requireDatabase()
 
   db.run(`
     DELETE FROM todos
     WHERE completed = 1;
   `)
+
+  await persistTodoDatabase()
 }

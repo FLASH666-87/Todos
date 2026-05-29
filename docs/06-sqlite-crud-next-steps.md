@@ -30,6 +30,8 @@ SQLite table
 ```txt
 使用者操作
   -> SQL INSERT / UPDATE / DELETE
+  -> export SQLite database bytes
+  -> save bytes to IndexedDB
   -> SELECT 最新 rows
   -> 更新 todos state
 ```
@@ -75,6 +77,13 @@ insertTodoIntoSqlite(draft, today)
 refreshTodosFromSqlite()
 ```
 
+實際上 `insertTodoIntoSqlite` 是 async，因為 INSERT 後會把 SQLite database bytes 寫回 IndexedDB：
+
+```ts
+await insertTodoIntoSqlite(draft, today)
+refreshTodosFromSqlite()
+```
+
 SQL：
 
 ```sql
@@ -109,6 +118,13 @@ updateTodoCompletedInSqlite(id, !todo.completed)
 refreshTodosFromSqlite()
 ```
 
+實作時：
+
+```ts
+await updateTodoCompletedInSqlite(id, !todo.completed)
+refreshTodosFromSqlite()
+```
+
 SQL：
 
 ```sql
@@ -133,6 +149,13 @@ todos.value = todos.value.filter((todo) => todo.id !== id)
 
 ```ts
 deleteTodoFromSqlite(id)
+refreshTodosFromSqlite()
+```
+
+實作時：
+
+```ts
+await deleteTodoFromSqlite(id)
 refreshTodosFromSqlite()
 ```
 
@@ -162,6 +185,13 @@ deleteCompletedTodosFromSqlite()
 refreshTodosFromSqlite()
 ```
 
+實作時：
+
+```ts
+await deleteCompletedTodosFromSqlite()
+refreshTodosFromSqlite()
+```
+
 SQL：
 
 ```sql
@@ -176,6 +206,8 @@ WHERE completed = 1;
 ```txt
 SQL mutation
   -> table 改變
+  -> db.export()
+  -> IndexedDB 保存
   -> SELECT 最新資料
   -> todos.value = 最新資料
 ```
@@ -183,6 +215,7 @@ SQL mutation
 這樣學生可以清楚看到：
 
 - SQLite table 是資料來源
+- IndexedDB 保存 SQLite database bytes
 - Vue state 是畫面快照
 - 畫面仍然只依賴 `todos`
 
@@ -198,8 +231,9 @@ SQL mutation
 預期：
 
 - 畫面會更新
-- `Data source` 仍然是 `Browser SQLite`
-- 所有操作都會先改 SQLite，再 SELECT 回 Vue state
+- `Data source` 仍然是 `Persistent browser SQLite`
+- refresh 後資料還在
+- 所有操作都會先改 SQLite，保存到 IndexedDB，再 SELECT 回 Vue state
 
 ## 檢查自己是否理解
 
@@ -209,7 +243,8 @@ SQL mutation
 2. `todo.completed = true` 對應哪個 SQL？
 3. `filter` 刪除一筆對應哪個 SQL？
 4. 為什麼 `UPDATE` 和 `DELETE` 要有 `WHERE`？
-5. 為什麼 mutation 後要再 `SELECT`？
+5. 為什麼 mutation 後要把 SQLite database bytes 存進 IndexedDB？
+6. 為什麼 mutation 後要再 `SELECT`？
 
 ## 本章重點
 

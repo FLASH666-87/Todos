@@ -6,6 +6,7 @@
 
 1. `localStorage` 是 key-value；SQLite 是 table
 2. Vue state 可以從 SQLite `SELECT` 的結果建立
+3. browser SQLite 可以把 database bytes 存進 IndexedDB，refresh 後繼續使用
 
 不要在這章學完整 CRUD。
 
@@ -63,12 +64,33 @@ onMounted(async () => {
 Vue component
   -> onMounted
   -> sql.js
-  -> SQLite table in browser memory
+  -> SQLite table in browser
+  -> database bytes saved in IndexedDB
   -> SELECT rows
   -> todos state
 ```
 
 這仍然是前端課，沒有 server，也沒有 API。
+
+但這次不只是 in-memory。SQLite database 會透過 `db.export()` 匯出成 binary，再存進 IndexedDB。
+
+```txt
+SQLite database
+  -> db.export()
+  -> Uint8Array
+  -> IndexedDB
+```
+
+下次 refresh 時：
+
+```txt
+IndexedDB
+  -> Uint8Array
+  -> new SQL.Database(bytes)
+  -> SELECT todos
+```
+
+所以資料可以在同一個瀏覽器裡持久存在。
 
 ## Step 1：安裝 sql.js
 
@@ -119,7 +141,7 @@ type Todo = {
 
 ## Step 3：seed 預設資料
 
-目前還沒有真的保存 SQLite 檔案，所以先把預設 TODO 寫進 table。
+如果 IndexedDB 裡還沒有 database，就先把預設 TODO 寫進 table。
 
 ```txt
 defaultTodos()
@@ -127,6 +149,12 @@ defaultTodos()
 ```
 
 這一步只是為了讓學生看得到 table 裡有資料。
+
+初始化後會把 database 存進 IndexedDB：
+
+```ts
+await persistTodoDatabase()
+```
 
 ## Step 4：SELECT 回 Vue state
 
@@ -167,20 +195,59 @@ onMounted(async () => {
 畫面上會顯示：
 
 ```txt
-Data source: Browser SQLite
+Data source: Persistent browser SQLite
 ```
 
-這代表目前 TODO 是從 browser SQLite 查出來的。
+這代表目前 TODO 是從 browser SQLite 查出來，而且 SQLite database bytes 會保存在 IndexedDB。
+
+## Step 6：測試 refresh 後資料是否還在
+
+請操作：
+
+1. 新增一筆 TODO
+2. 勾選一筆 TODO
+3. refresh
+
+預期：
+
+- 新增的 TODO 還在
+- completed 狀態還在
+- Data source 仍然顯示 `Persistent browser SQLite`
+
+這代表資料不是只存在 Vue memory，也不是只存在 SQLite memory，而是被保存到了 IndexedDB。
+
+## 會產生 .sqlite 檔案嗎？
+
+不會。
+
+目前的 SQLite database 是存在瀏覽器的 IndexedDB，不會在專案資料夾產生：
+
+```txt
+todos.sqlite
+dev.db
+*.sqlite
+```
+
+所以這一章還不需要修改 `.gitignore`。
+
+之後如果改成 Node 或後端 SQLite，真的在專案裡產生 `.db` 檔案，才需要加入：
+
+```gitignore
+*.db
+*.sqlite
+*.sqlite3
+```
 
 ## 檢查自己是否理解
 
 請回答：
 
 1. localStorage 和 SQLite 最大差別是什麼？
-2. 為什麼 SQLite 的 completed 用 `0` / `1`？
-3. 為什麼要把 `due_date` 轉回 `dueDate`？
-4. `onMounted` 在這裡負責什麼？
-5. Vue template 最後吃的是 SQL result 還是 `todos` state？
+2. browser SQLite 為什麼可以 refresh 後還留下資料？
+3. 為什麼 SQLite 的 completed 用 `0` / `1`？
+4. 為什麼要把 `due_date` 轉回 `dueDate`？
+5. `onMounted` 在這裡負責什麼？
+6. Vue template 最後吃的是 SQL result 還是 `todos` state？
 
 ## 本章重點
 
