@@ -50,10 +50,12 @@ const selectedNumberLabel = computed(() => {
 const title = ref('')
 const description = ref('')
 const priority = ref<Priority>('medium')
-const category = ref('App Feature')
+const savedCategory = localStorage.getItem('lastCategory')
+const category = ref(savedCategory && props.categories.includes(savedCategory) ? savedCategory : 'App Dev')
 const dueDate = ref(props.defaultDueDate)
 
-watch(category, () => {
+watch(category, (val) => {
+  localStorage.setItem('lastCategory', val)
   path.value = []
 })
 
@@ -93,7 +95,7 @@ const resetForm = () => {
   title.value = ''
   description.value = ''
   priority.value = 'medium'
-  category.value = 'App Feature'
+  category.value = localStorage.getItem('lastCategory') || 'App Dev'
   dueDate.value = props.defaultDueDate
 }
 
