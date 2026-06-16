@@ -83,16 +83,25 @@ function mapDoc(id: string, data: Record<string, unknown>): Todo {
   }
 }
 
-export function subscribeTodos(onChange: (todos: Todo[]) => void): () => void {
+export function subscribeTodos(
+  onChange: (todos: Todo[]) => void,
+  onError?: (error: Error) => void,
+): () => void {
   const q = query(collection(db, TODOS_COLLECTION), orderBy('id', 'asc'))
 
-  return onSnapshot(q, (snapshot) => {
-    const todos: Todo[] = []
-    snapshot.forEach((docSnap) => {
-      todos.push(mapDoc(docSnap.id, docSnap.data() as Record<string, unknown>))
-    })
-    onChange(todos)
-  })
+  return onSnapshot(q,
+    (snapshot) => {
+      const todos: Todo[] = []
+      snapshot.forEach((docSnap) => {
+        todos.push(mapDoc(docSnap.id, docSnap.data() as Record<string, unknown>))
+      })
+      onChange(todos)
+    },
+    (error) => {
+      console.error('Firestore subscribe error:', error)
+      onError?.(error)
+    },
+  )
 }
 
 export async function addTodos(todos: Todo[]): Promise<void> {

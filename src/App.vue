@@ -187,9 +187,15 @@ onMounted(() => {
     user.value = fbUser
 
     if (fbUser && !unsubscribeTodos) {
-      unsubscribeTodos = subscribeTodos((fbTodos) => {
-        todos.value = fbTodos
-      })
+      unsubscribeTodos = subscribeTodos(
+        (fbTodos) => {
+          todos.value = fbTodos
+        },
+        () => {
+          handleLogout()
+          alert('Your Google account is not authorized to access this app.')
+        },
+      )
     }
 
     if (!fbUser && unsubscribeTodos) {
