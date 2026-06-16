@@ -15,6 +15,7 @@ import {
   login as fbLogin,
   logout as fbLogout,
   onAuthChange,
+  resolveRedirectResult,
   subscribeTodos,
   toggleTodo as fbToggleTodo,
 } from '@/lib/firebase'
@@ -164,7 +165,10 @@ let unsubscribeTodos: (() => void) | null = null
 let unsubscribeAuth: (() => void) | null = null
 
 const handleLogin = async () => {
-  await fbLogin()
+  const result = await fbLogin()
+  if (result === 'popup-blocked') {
+    alert('Please allow popups for this site, then try again.')
+  }
 }
 
 const handleLogout = async () => {
@@ -172,6 +176,8 @@ const handleLogout = async () => {
 }
 
 onMounted(() => {
+  resolveRedirectResult()
+
   unsubscribeAuth = onAuthChange((fbUser) => {
     user.value = fbUser
 

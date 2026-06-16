@@ -14,9 +14,10 @@ import {
 } from 'firebase/firestore'
 import {
   getAuth,
+  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
-  signInWithRedirect,
+  signInWithPopup,
   signOut,
 } from 'firebase/auth'
 import type { User } from 'firebase/auth'
@@ -41,8 +42,25 @@ export function onAuthChange(callback: (user: User | null) => void): () => void 
   return onAuthStateChanged(auth, callback)
 }
 
-export async function login(): Promise<void> {
-  await signInWithRedirect(auth, googleProvider)
+export async function login(): Promise<'ok' | 'popup-blocked'> {
+  try {
+    await signInWithPopup(auth, googleProvider)
+    return 'ok'
+  } catch (e: unknown) {
+    if (e instanceof Error && 'code' in e && (e as { code: string }).code === 'auth/popup-blocked') {
+      return 'popup-blocked'
+    }
+    throw e
+  }
+}
+
+export async function resolveRedirectResult(): Promise<User | null> {
+  try {
+    const result = await getRedirectResult(auth)
+    return result?.user ?? null
+  } catch {
+    return null
+  }
 }
 
 export async function logout(): Promise<void> {
