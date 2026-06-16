@@ -165,9 +165,14 @@ let unsubscribeTodos: (() => void) | null = null
 let unsubscribeAuth: (() => void) | null = null
 
 const handleLogin = async () => {
-  const result = await fbLogin()
-  if (result === 'popup-blocked') {
-    alert('Please allow popups for this site, then try again.')
+  try {
+    const result = await fbLogin()
+    if (result === 'popup-blocked') {
+      alert('Popup was blocked. Please allow popups for this site and try again.')
+    }
+  } catch (e) {
+    console.error('Login error:', e)
+    alert('Login failed. Please check:\n1. Google sign-in is enabled in Firebase Console (Authentication → Sign-in method)\n2. flash666-87.github.io is in Authorized domains (Authentication → Settings)')
   }
 }
 
