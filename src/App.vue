@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Plus } from 'lucide-vue-next'
 import CategoryPage from '@/components/todos/CategoryPage.vue'
 import CategorySummary from '@/components/todos/CategorySummary.vue'
@@ -7,14 +7,13 @@ import TodoForm from '@/components/todos/TodoForm.vue'
 import TodoHeader from '@/components/todos/TodoHeader.vue'
 import TodoList from '@/components/todos/TodoList.vue'
 import {
-  deleteCompletedTodosFromSqlite,
-  deleteTodoFromSqlite,
-  initializeTodoDatabase,
-  insertTodosIntoSqlite,
-  listTodosFromSqlite,
-  updateTodoCompletedInSqlite,
-} from '@/lib/todoSqlite'
-import { loadTodosFromDisk, saveTodosToDisk } from '@/lib/fileSync'
+  addTodos,
+  clearCompletedTodos,
+  completeFilteredTodos,
+  deleteTodo as fbDeleteTodo,
+  subscribeTodos,
+  toggleTodo as fbToggleTodo,
+} from '@/lib/firebase'
 import { buildNumberedTree, resolveChain } from '@/lib/utils'
 import type { Priority, PriorityOption, StatusFilter, Todo, TodoDraft } from '@/types/todo'
 
@@ -26,9 +25,6 @@ const priorityFilter = ref<'all' | Priority>('all')
 const categoryFilter = ref('all')
 const hideCompleted = ref(false)
 const currentView = ref<'list' | 'category' | 'app-dev'>('list')
-const isLoadingTodos = ref(true)
-const dataSourceLabel = ref('Browser SQLite')
-const isUsingSqlite = ref(false)
 const todos = ref<Todo[]>([])
 
 const categories = ['App Dev', 'App Core Issue', 'Bug', 'App Feature', 'Minor Task']
@@ -124,66 +120,29 @@ const todoNumbers = computed(() => {
   return result
 })
 
-const refreshTodosFromSqlite = () => {
-  todos.value = listTodosFromSqlite()
-}
-
 const addTodo = async (draft: TodoDraft, numberLabel: string) => {
   const categoryTodos = todos.value.filter((t) => t.category === draft.category)
   const chain = resolveChain(numberLabel, categoryTodos, draft, today)
-
-  if (isUsingSqlite.value) {
-    await insertTodosIntoSqlite(chain)
-    refreshTodosFromSqlite()
-    return
-  }
-
-  chain.forEach((todo) => todos.value.push(todo))
+  await addTodos(chain)
 }
 
 const toggleTodo = async (id: number) => {
   const todo = todos.value.find((item) => item.id === id)
   if (!todo) return
-
-  if (isUsingSqlite.value) {
-    await updateTodoCompletedInSqlite(id, !todo.completed)
-    refreshTodosFromSqlite()
-    return
-  }
-
-  todo.completed = !todo.completed
+  await fbToggleTodo(id, !todo.completed)
 }
 
 const deleteTodo = async (id: number) => {
-  if (isUsingSqlite.value) {
-    await deleteTodoFromSqlite(id)
-    refreshTodosFromSqlite()
-    return
-  }
-
-  const deleted = todos.value.find((t) => t.id === id)
-  if (deleted) {
-    todos.value.forEach((todo) => {
-      if (todo.parentId === id) todo.parentId = deleted.parentId
-    })
-  }
-  todos.value = todos.value.filter((todo) => todo.id !== id)
+  await fbDeleteTodo(id)
 }
 
-const completeFilteredTodos = () => {
-  filteredTodos.value.forEach((todo) => {
-    todo.completed = true
-  })
+const completeAllFiltered = () => {
+  const ids = filteredTodos.value.filter((t) => !t.completed).map((t) => t.id)
+  if (ids.length > 0) completeFilteredTodos(ids)
 }
 
-const clearCompletedTodos = async () => {
-  if (isUsingSqlite.value) {
-    await deleteCompletedTodosFromSqlite()
-    refreshTodosFromSqlite()
-    return
-  }
-
-  todos.value = todos.value.filter((todo) => !todo.completed)
+const clearAllCompleted = () => {
+  clearCompletedTodos()
 }
 
 const resetFilters = () => {
@@ -194,42 +153,13 @@ const resetFilters = () => {
   hideCompleted.value = false
 }
 
-onMounted(async () => {
-  if (import.meta.env.MODE === 'test') {
-    todos.value = []
-    dataSourceLabel.value = 'Seed data'
-    isUsingSqlite.value = false
-    isLoadingTodos.value = false
-    return
-  }
+let unsubscribe: (() => void) | null = null
 
-  try {
-    await initializeTodoDatabase([])
-    refreshTodosFromSqlite()
-    dataSourceLabel.value = 'Persistent browser SQLite'
-    isUsingSqlite.value = true
-  } catch {
-    todos.value = []
-    dataSourceLabel.value = 'Seed data'
-    isUsingSqlite.value = false
-  }
-
-  isLoadingTodos.value = false
-
-  loadTodosFromDisk().then((diskTodos) => {
-    if (diskTodos && diskTodos.length > 0 && todos.value.length === 0) {
-      todos.value = diskTodos
-    }
+onMounted(() => {
+  unsubscribe = subscribeTodos((fbTodos) => {
+    todos.value = fbTodos
   })
 })
-
-let saveTimer: ReturnType<typeof setTimeout> | undefined
-watch(todos, (value) => {
-  clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    saveTodosToDisk(value)
-  }, 1000)
-}, { deep: true })
 </script>
 
 <template>
@@ -241,17 +171,6 @@ watch(todos, (value) => {
         :completed-count="completedTodos.length"
         :overdue-count="overdueTodos.length"
       />
-
-      <div class="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-        Data source: <span class="font-semibold text-slate-900">{{ dataSourceLabel }}</span>
-      </div>
-
-      <div
-        v-if="isLoadingTodos"
-        class="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600"
-      >
-        Loading TODOs from SQLite...
-      </div>
 
       <section v-if="currentView === 'list'" class="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
         <aside class="rounded-lg border border-slate-200 bg-white p-5">
@@ -303,8 +222,8 @@ watch(todos, (value) => {
           :parent-ids="parentIds"
           @toggle-todo="toggleTodo"
           @delete-todo="deleteTodo"
-          @complete-filtered-todos="completeFilteredTodos"
-          @clear-completed-todos="clearCompletedTodos"
+          @complete-filtered-todos="completeAllFiltered"
+          @clear-completed-todos="clearAllCompleted"
           @reset-filters="resetFilters"
         />
       </section>
