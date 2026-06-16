@@ -1,11 +1,16 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { CalendarDays, CheckCircle2, Circle, Trash2 } from 'lucide-vue-next'
 import type { Priority, Todo } from '@/types/todo'
 
 const props = defineProps<{
   todo: Todo
   today: string
+  numberLabel: string
+  parentIds: Set<number>
 }>()
+
+const isParent = computed(() => props.parentIds.has(props.todo.id))
 
 const emit = defineEmits<{
   toggleTodo: [id: number]
@@ -47,6 +52,7 @@ const dueState = (todo: Todo) => {
           class="text-base font-semibold leading-6"
           :class="{ 'text-slate-400 line-through': todo.completed }"
         >
+          <span class="mr-1.5 inline-block min-w-[2ch] text-right text-xs text-slate-400">{{ numberLabel }}</span>
           {{ todo.title }}
         </h3>
 
@@ -86,8 +92,11 @@ const dueState = (todo: Todo) => {
 
     <button
       type="button"
-      class="grid size-10 place-items-center rounded-md border border-red-200 bg-white text-red-700"
-      aria-label="Delete TODO"
+      class="grid size-10 place-items-center rounded-md border bg-white"
+      :class="isParent ? 'border-slate-200 text-slate-400 cursor-not-allowed' : 'border-red-200 text-red-700'"
+      :disabled="isParent"
+      :aria-label="isParent ? 'Cannot delete: has subtasks' : 'Delete TODO'"
+      :title="isParent ? 'Cannot delete: has subtasks' : ''"
       @click="emit('deleteTodo', todo.id)"
     >
       <Trash2 :size="17" />

@@ -16,6 +16,8 @@ defineProps<{
   categoryFilter: string
   hideCompleted: boolean
   categories: string[]
+  todoNumbers: Record<number, string>
+  parentIds: Set<number>
 }>()
 
 const emit = defineEmits<{
@@ -43,7 +45,7 @@ const emit = defineEmits<{
 
         <div class="flex flex-col gap-2 sm:flex-row">
           <button
-            class="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold"
+            class="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white/80 px-3 text-sm font-semibold shadow-sm backdrop-blur-sm transition-all hover:scale-[1.02] hover:border-emerald-400 hover:bg-emerald-600/20 hover:text-emerald-700 active:scale-95 active:shadow-inner"
             type="button"
             @click="emit('completeFilteredTodos')"
           >
@@ -51,7 +53,7 @@ const emit = defineEmits<{
             Complete filtered
           </button>
           <button
-            class="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-white px-3 text-sm font-semibold text-red-700"
+            class="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-white/80 px-3 text-sm font-semibold text-red-700 shadow-sm backdrop-blur-sm transition-all hover:scale-[1.02] hover:border-red-400 hover:bg-red-600/20 hover:text-red-800 active:scale-95 active:shadow-inner"
             type="button"
             @click="emit('clearCompletedTodos')"
           >
@@ -92,6 +94,8 @@ const emit = defineEmits<{
           :key="todo.id"
           :todo="todo"
           :today="today"
+          :number-label="todoNumbers[todo.id] ?? ''"
+          :parent-ids="parentIds"
           @toggle-todo="emit('toggleTodo', $event)"
           @delete-todo="emit('deleteTodo', $event)"
         />

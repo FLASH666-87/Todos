@@ -3,7 +3,7 @@ import sqliteWasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
 import type { Database } from 'sql.js'
 import type { Priority, Todo, TodoDraft } from '@/types/todo'
 
-type TodoRow = [number, string, string, number, Priority, string, string, string]
+type TodoRow = [number, number | null, string, string, number, Priority, string, string, string]
 
 const INDEXED_DB_NAME = 'vue-todos-sqlite'
 const INDEXED_DB_STORE = 'database'
@@ -71,15 +71,23 @@ const createTodoTable = (db: Database) => {
   db.run(`
     CREATE TABLE IF NOT EXISTS todos (
       id INTEGER PRIMARY KEY,
+      parent_id INTEGER,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
       completed INTEGER NOT NULL,
       priority TEXT NOT NULL,
       category TEXT NOT NULL,
       due_date TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (parent_id) REFERENCES todos(id)
     );
   `)
+
+  try {
+    db.run(`ALTER TABLE todos ADD COLUMN parent_id INTEGER;`)
+  } catch {
+    /* column already exists — ignore */
+  }
 }
 
 const countTodos = (db: Database) => {
@@ -93,6 +101,7 @@ const seedTodos = (db: Database, todos: Todo[]) => {
   const insert = db.prepare(`
     INSERT INTO todos (
       id,
+      parent_id,
       title,
       description,
       completed,
@@ -100,12 +109,13 @@ const seedTodos = (db: Database, todos: Todo[]) => {
       category,
       due_date,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
   `)
 
   todos.forEach((todo) => {
     insert.run([
       todo.id,
+      todo.parentId,
       todo.title,
       todo.description,
       todo.completed ? 1 : 0,
@@ -122,13 +132,14 @@ const seedTodos = (db: Database, todos: Todo[]) => {
 const mapRowToTodo = (row: TodoRow): Todo => {
   return {
     id: row[0],
-    title: row[1],
-    description: row[2],
-    completed: row[3] === 1,
-    priority: row[4],
-    category: row[5],
-    dueDate: row[6],
-    createdAt: row[7],
+    parentId: row[1],
+    title: row[2],
+    description: row[3],
+    completed: row[4] === 1,
+    priority: row[5],
+    category: row[6],
+    dueDate: row[7],
+    createdAt: row[8],
   }
 }
 
@@ -154,6 +165,7 @@ export const listTodosFromSqlite = (): Todo[] => {
   const result = db.exec(`
     SELECT
       id,
+      parent_id,
       title,
       description,
       completed,
@@ -180,6 +192,7 @@ export const insertTodoIntoSqlite = async (draft: TodoDraft, createdAt: string):
   const insert = db.prepare(`
     INSERT INTO todos (
       id,
+      parent_id,
       title,
       description,
       completed,
@@ -187,11 +200,12 @@ export const insertTodoIntoSqlite = async (draft: TodoDraft, createdAt: string):
       category,
       due_date,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
   `)
 
   insert.run([
     Date.now(),
+    draft.parentId,
     draft.title,
     draft.description,
     0,
@@ -220,13 +234,51 @@ export const updateTodoCompletedInSqlite = async (id: number, completed: boolean
 
 export const deleteTodoFromSqlite = async (id: number): Promise<void> => {
   const db = requireDatabase()
-  const remove = db.prepare(`
-    DELETE FROM todos
-    WHERE id = ?;
-  `)
 
+  const parentResult = db.exec(`SELECT parent_id FROM todos WHERE id = ${id};`)
+  const parentId = parentResult[0]?.values[0]?.[0] ?? null
+
+  const promote = db.prepare(`UPDATE todos SET parent_id = ? WHERE parent_id = ?;`)
+  promote.run([parentId, id])
+  promote.free()
+
+  const remove = db.prepare(`DELETE FROM todos WHERE id = ?;`)
   remove.run([id])
   remove.free()
+  await persistTodoDatabase()
+}
+
+export const insertTodosIntoSqlite = async (todos: Todo[]): Promise<void> => {
+  const db = requireDatabase()
+  const insert = db.prepare(`
+    INSERT INTO todos (
+      id,
+      parent_id,
+      title,
+      description,
+      completed,
+      priority,
+      category,
+      due_date,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+  `)
+
+  todos.forEach((todo) => {
+    insert.run([
+      todo.id,
+      todo.parentId,
+      todo.title,
+      todo.description,
+      todo.completed ? 1 : 0,
+      todo.priority,
+      todo.category,
+      todo.dueDate,
+      todo.createdAt,
+    ])
+  })
+
+  insert.free()
   await persistTodoDatabase()
 }
 

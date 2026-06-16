@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Plus } from 'lucide-vue-next'
+import CategoryPage from '@/components/todos/CategoryPage.vue'
 import CategorySummary from '@/components/todos/CategorySummary.vue'
 import TodoForm from '@/components/todos/TodoForm.vue'
 import TodoHeader from '@/components/todos/TodoHeader.vue'
@@ -9,68 +10,28 @@ import {
   deleteCompletedTodosFromSqlite,
   deleteTodoFromSqlite,
   initializeTodoDatabase,
-  insertTodoIntoSqlite,
+  insertTodosIntoSqlite,
   listTodosFromSqlite,
   updateTodoCompletedInSqlite,
 } from '@/lib/todoSqlite'
+import { loadTodosFromDisk, saveTodosToDisk } from '@/lib/fileSync'
+import { buildNumberedTree, resolveChain } from '@/lib/utils'
 import type { Priority, PriorityOption, StatusFilter, Todo, TodoDraft } from '@/types/todo'
 
 const today = new Date().toISOString().slice(0, 10)
-
-const defaultTodos = (): Todo[] => [
-  {
-    id: 1,
-    title: 'Learn Vue state and v-model',
-    description: 'Practice how form input updates reactive state.',
-    completed: false,
-    priority: 'high',
-    category: 'Course',
-    dueDate: today,
-    createdAt: '2026-05-19',
-  },
-  {
-    id: 2,
-    title: 'Add validation to the TODO form',
-    description: 'Disable submit until the title is long enough.',
-    completed: false,
-    priority: 'medium',
-    category: 'Course',
-    dueDate: '2026-05-24',
-    createdAt: '2026-05-20',
-  },
-  {
-    id: 3,
-    title: 'Prepare component extraction exercise',
-    description: 'Use this large App.vue as the reason to split files.',
-    completed: true,
-    priority: 'high',
-    category: 'Teaching',
-    dueDate: '2026-05-21',
-    createdAt: '2026-05-20',
-  },
-  {
-    id: 4,
-    title: 'Explain refresh state loss',
-    description: 'Show that memory state resets when the app reloads.',
-    completed: false,
-    priority: 'low',
-    category: 'Teaching',
-    dueDate: '2026-05-25',
-    createdAt: '2026-05-21',
-  },
-]
 
 const search = ref('')
 const statusFilter = ref<StatusFilter>('all')
 const priorityFilter = ref<'all' | Priority>('all')
 const categoryFilter = ref('all')
 const hideCompleted = ref(false)
+const currentView = ref<'list' | 'category' | 'app-dev'>('list')
 const isLoadingTodos = ref(true)
 const dataSourceLabel = ref('Browser SQLite')
 const isUsingSqlite = ref(false)
 const todos = ref<Todo[]>([])
 
-const categories = ['Course', 'Teaching', 'Homework', 'Review', 'Personal']
+const categories = ['App Dev', 'App Core Issue', 'Bug', 'App Feature', 'Minor Task']
 const priorities: PriorityOption[] = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
@@ -145,27 +106,39 @@ const categoryCounts = computed(() => {
   })
 })
 
+const parentIds = computed(() => {
+  const ids = new Set<number>()
+  todos.value.forEach((todo) => {
+    if (todo.parentId !== null) ids.add(todo.parentId)
+  })
+  return ids
+})
+
+const todoNumbers = computed(() => {
+  const result: Record<number, string> = {}
+  const cats = [...new Set(todos.value.map((t) => t.category))]
+  for (const cat of cats) {
+    const map = buildNumberedTree(todos.value.filter((t) => t.category === cat))
+    map.forEach((value, key) => { result[key] = value })
+  }
+  return result
+})
+
 const refreshTodosFromSqlite = () => {
   todos.value = listTodosFromSqlite()
 }
 
-const addTodo = async (draft: TodoDraft) => {
+const addTodo = async (draft: TodoDraft, numberLabel: string) => {
+  const categoryTodos = todos.value.filter((t) => t.category === draft.category)
+  const chain = resolveChain(numberLabel, categoryTodos, draft, today)
+
   if (isUsingSqlite.value) {
-    await insertTodoIntoSqlite(draft, today)
+    await insertTodosIntoSqlite(chain)
     refreshTodosFromSqlite()
     return
   }
 
-  todos.value.push({
-    id: Date.now(),
-    title: draft.title,
-    description: draft.description,
-    completed: false,
-    priority: draft.priority,
-    category: draft.category,
-    dueDate: draft.dueDate,
-    createdAt: today,
-  })
+  chain.forEach((todo) => todos.value.push(todo))
 }
 
 const toggleTodo = async (id: number) => {
@@ -188,6 +161,12 @@ const deleteTodo = async (id: number) => {
     return
   }
 
+  const deleted = todos.value.find((t) => t.id === id)
+  if (deleted) {
+    todos.value.forEach((todo) => {
+      if (todo.parentId === id) todo.parentId = deleted.parentId
+    })
+  }
   todos.value = todos.value.filter((todo) => todo.id !== id)
 }
 
@@ -217,7 +196,7 @@ const resetFilters = () => {
 
 onMounted(async () => {
   if (import.meta.env.MODE === 'test') {
-    todos.value = defaultTodos()
+    todos.value = []
     dataSourceLabel.value = 'Seed data'
     isUsingSqlite.value = false
     isLoadingTodos.value = false
@@ -225,18 +204,32 @@ onMounted(async () => {
   }
 
   try {
-    await initializeTodoDatabase(defaultTodos())
+    await initializeTodoDatabase([])
     refreshTodosFromSqlite()
     dataSourceLabel.value = 'Persistent browser SQLite'
     isUsingSqlite.value = true
   } catch {
-    todos.value = defaultTodos()
+    todos.value = []
     dataSourceLabel.value = 'Seed data'
     isUsingSqlite.value = false
   }
 
   isLoadingTodos.value = false
+
+  loadTodosFromDisk().then((diskTodos) => {
+    if (diskTodos && diskTodos.length > 0 && todos.value.length === 0) {
+      todos.value = diskTodos
+    }
+  })
 })
+
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+watch(todos, (value) => {
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    saveTodosToDisk(value)
+  }, 1000)
+}, { deep: true })
 </script>
 
 <template>
@@ -260,7 +253,7 @@ onMounted(async () => {
         Loading TODOs from SQLite...
       </div>
 
-      <section class="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <section v-if="currentView === 'list'" class="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
         <aside class="rounded-lg border border-slate-200 bg-white p-5">
           <div class="flex items-center justify-between">
             <div>
@@ -274,8 +267,23 @@ onMounted(async () => {
             :categories="categories"
             :priorities="priorities"
             :default-due-date="today"
+            :todos="todos"
             @add-todo="addTodo"
           />
+
+          <button
+            class="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            @click="currentView = 'app-dev'"
+          >
+            App Dev 魚骨視圖
+          </button>
+
+          <button
+            class="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            @click="currentView = 'category'"
+          >
+            分類魚骨視圖
+          </button>
 
           <CategorySummary :categories="categoryCounts" />
         </aside>
@@ -291,6 +299,8 @@ onMounted(async () => {
           :high-priority-count="highPriorityTodos.length"
           :today="today"
           :categories="categories"
+          :todo-numbers="todoNumbers"
+          :parent-ids="parentIds"
           @toggle-todo="toggleTodo"
           @delete-todo="deleteTodo"
           @complete-filtered-todos="completeFilteredTodos"
@@ -298,6 +308,22 @@ onMounted(async () => {
           @reset-filters="resetFilters"
         />
       </section>
+
+      <CategoryPage
+        v-else-if="currentView === 'app-dev'"
+        title="App Dev 魚骨視圖"
+        :categories="['App Dev']"
+        :todos="todos"
+        @back="currentView = 'list'"
+      />
+
+      <CategoryPage
+        v-else
+        title="分類魚骨視圖"
+        :categories="['App Core Issue', 'Bug', 'App Feature', 'Minor Task']"
+        :todos="todos"
+        @back="currentView = 'list'"
+      />
     </div>
   </main>
 </template>

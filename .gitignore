@@ -45,3 +45,6 @@ playwright-report/
 *.db
 *.sqlite
 *.sqlite3
+
+# Dev data synced from browser
+dev-data/

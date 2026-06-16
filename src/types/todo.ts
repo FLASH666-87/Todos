@@ -4,6 +4,7 @@ export type StatusFilter = 'all' | 'active' | 'completed'
 
 export type Todo = {
   id: number
+  parentId: number | null
   title: string
   description: string
   completed: boolean
@@ -14,6 +15,7 @@ export type Todo = {
 }
 
 export type TodoDraft = {
+  parentId: number | null
   title: string
   description: string
   priority: Priority
