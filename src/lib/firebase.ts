@@ -16,7 +16,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   onAuthStateChanged,
-  signInWithPopup,
+  signInWithRedirect,
   signOut,
 } from 'firebase/auth'
 import type { User } from 'firebase/auth'
@@ -41,13 +41,8 @@ export function onAuthChange(callback: (user: User | null) => void): () => void 
   return onAuthStateChanged(auth, callback)
 }
 
-export async function login(): Promise<User | null> {
-  try {
-    const result = await signInWithPopup(auth, googleProvider)
-    return result.user
-  } catch {
-    return null
-  }
+export async function login(): Promise<void> {
+  await signInWithRedirect(auth, googleProvider)
 }
 
 export async function logout(): Promise<void> {
