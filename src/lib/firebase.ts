@@ -12,6 +12,14 @@ import {
   setDoc,
   writeBatch,
 } from 'firebase/firestore'
+import {
+  getAuth,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+} from 'firebase/auth'
+import type { User } from 'firebase/auth'
 import type { Todo } from '@/types/todo'
 
 const firebaseConfig = {
@@ -25,7 +33,26 @@ const firebaseConfig = {
 }
 
 const app = initializeApp(firebaseConfig)
+const auth = getAuth(app)
 const db = getFirestore(app)
+const googleProvider = new GoogleAuthProvider()
+
+export function onAuthChange(callback: (user: User | null) => void): () => void {
+  return onAuthStateChanged(auth, callback)
+}
+
+export async function login(): Promise<User | null> {
+  try {
+    const result = await signInWithPopup(auth, googleProvider)
+    return result.user
+  } catch {
+    return null
+  }
+}
+
+export async function logout(): Promise<void> {
+  await signOut(auth)
+}
 
 const TODOS_COLLECTION = 'todos'
 
