@@ -193,7 +193,7 @@ onMounted(() => {
         },
         () => {
           handleLogout()
-          alert('Your Google account is not authorized to access this app.')
+          alert('您不是開發者，權限不足')
         },
       )
     }
